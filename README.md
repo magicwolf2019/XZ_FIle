@@ -1,5 +1,5 @@
 # XZ_FIle
-An example of using the XZ library to create and read archives (just like in zlib).
+An example of using the XZ Utils library to create and read archives (just like in zlib).
 
 // Create and init struct XZ_file_st  
 XZ_file_st * xz_file_create ( unsigned int size_buf );  
