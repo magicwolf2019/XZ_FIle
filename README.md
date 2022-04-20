@@ -16,6 +16,8 @@ int xz_file_write ( XZ_file_st * fxz, char * buf_write, int len_write );
 int xz_file_write_finish ( XZ_file_st * fxz );  
 // Read buf from file  
 int xz_file_read ( XZ_file_st * fxz, char * buf_read, int size_buf );  
+// seek through reading (works in any direction)
+__int64 xz_file_seek ( XZ_file_st * fxz, __int64 offset, int origin );
 
 // Get length uncompressed data from xz file  
 int xz_file_get_uncompressed_len ( char * name_file, uint64_t * len );  
