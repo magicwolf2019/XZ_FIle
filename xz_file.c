@@ -9,6 +9,9 @@
 
 #ifdef _MSC_VER
 #define Lseek64(x,y,z) _lseeki64((x),(y),(z))
+#ifndef _CRT_SECURE_NO_WARNINGS
+# define _CRT_SECURE_NO_WARNINGS
+#endif
 #pragma warning(disable:4996)
 #else
 #define Lseek64(x,y,z) lseeki64((x),(y),(z))
@@ -52,10 +55,10 @@ void xz_init_stream ( XZ_file_st * fxz )
 {
   if ( fxz==0 )
     return;
-	fxz->strm->next_in = NULL;
-	fxz->strm->avail_in = 0;
-	fxz->strm->next_out = fxz->buf;
-	fxz->strm->avail_out = fxz->size_buf;
+  fxz->strm->next_in = NULL;
+  fxz->strm->avail_in = 0;
+  fxz->strm->next_out = fxz->buf_temp;
+  fxz->strm->avail_out = fxz->size_buf_temp;
 }
 
 // Create and init struct XZ_file_st
@@ -68,17 +71,17 @@ XZ_file_st * xz_file_create ( unsigned int size_buf )
     return NULL;
   memset(fxz,0,sizeof(XZ_file_st));
 
-  fxz->buf=(char *)malloc(size_buf);
-  if ( fxz->buf==NULL )
+  fxz->buf_temp=(char *)malloc(size_buf);
+  if ( fxz->buf_temp==NULL )
     goto _M_Err;
-  memset(fxz->buf,0,fxz->size_buf);
+  memset(fxz->buf_temp,0,fxz->size_buf_temp);
 
   fxz->strm=(lzma_stream*)malloc(sizeof(lzma_stream));
   if ( fxz->strm==NULL )
     goto _M_Err;
   memset(fxz->strm,0,sizeof(lzma_stream));
 
-  fxz->size_buf=size_buf;
+  fxz->size_buf_temp=size_buf;
   fxz->xz_file=-1;
 
   return fxz;
@@ -86,8 +89,8 @@ XZ_file_st * xz_file_create ( unsigned int size_buf )
 _M_Err:
   if ( fxz->strm!=0 )
     free(fxz->strm);
-  if ( fxz->buf )
-    free(fxz->buf);
+  if ( fxz->buf_temp )
+    free(fxz->buf_temp);
   if ( fxz )
     free(fxz);
   return NULL;
@@ -100,8 +103,8 @@ void xz_file_delete ( XZ_file_st ** fxz )
     return;
   if ( (*fxz)->strm!=0 )
     free((*fxz)->strm);
-  if ( (*fxz)->buf )
-    free((*fxz)->buf);
+  if ( (*fxz)->buf_temp )
+    free((*fxz)->buf_temp);
   if ( (*fxz) )
     free((*fxz));
   *fxz=NULL;
@@ -121,6 +124,11 @@ int xz_file_open ( XZ_file_st * fxz, char * name_file, XZ_file_mode_open_en mode
   fxz->count_byte_write=0;
   fxz->len_file_read=0;
   fxz->mode_open=XZ_FILE_MODE_NO_OPEN;
+  if ( fxz->name_file!=0 )
+    free(fxz->name_file);
+  fxz->name_file = strdup(name_file);
+  fxz->len_uncompress=0;
+  fxz->ret=LZMA_OK;
 
   switch ( mode_open ) {
 
@@ -136,12 +144,13 @@ int xz_file_open ( XZ_file_st * fxz, char * name_file, XZ_file_mode_open_en mode
     if ( ret != LZMA_OK)
       return -1;
     fxz->xz_file=open(name_file,O_WRONLY|O_BINARY|O_APPEND,S_IWRITE);
-    Lseek64(fxz->xz_file,0,SEEK_END);
+    if ( fxz->xz_file!=-1 )
+      Lseek64(fxz->xz_file,0,SEEK_END);
     break;
 
   case XZ_FILE_MODE_READ:
-	  ret = lzma_stream_decoder(fxz->strm, UINT64_MAX, LZMA_CONCATENATED);
-	  if (ret != LZMA_OK)
+    ret = lzma_stream_decoder(fxz->strm, UINT64_MAX, LZMA_CONCATENATED);
+    if (ret != LZMA_OK)
       return -1;
     fxz->xz_file=open(name_file,O_RDONLY|O_BINARY,S_IREAD);
     if ( fxz->xz_file!=-1 ) {
@@ -171,6 +180,12 @@ void xz_file_close ( XZ_file_st * fxz )
 {
   if ( fxz==0 || fxz->mode_open==0 )
     return;
+  if ( fxz->name_file!=0 )
+    free(fxz->name_file);
+  fxz->name_file=0;
+  if ( fxz->buf_seek!=0 )
+    free(fxz->buf_seek);
+  fxz->buf_seek=0;
   if ( fxz->xz_file!=-1 )
     close(fxz->xz_file);
   fxz->xz_file=-1;
@@ -190,26 +205,26 @@ int xz_file_write ( XZ_file_st * fxz, char * buf_write, int len_write )
   while ( 1 ) {
     
     if ( fxz->strm->avail_in==0 ) {
-	    fxz->strm->next_in = buf_write;
-	    fxz->strm->avail_in = len_write;
+      fxz->strm->next_in = buf_write;
+      fxz->strm->avail_in = len_write;
     }
 
     ret = lzma_code(fxz->strm, action);
 
     if ( fxz->strm->avail_out == 0 || ret == LZMA_STREAM_END ) {
-      write_size = fxz->size_buf - fxz->strm->avail_out;
-      if ( write(fxz->xz_file, fxz->buf, write_size )!= write_size )
+      write_size = fxz->size_buf_temp - fxz->strm->avail_out;
+      if ( write(fxz->xz_file, fxz->buf_temp, write_size )!= write_size )
         return -1;
-			fxz->strm->next_out = fxz->buf;
-			fxz->strm->avail_out = fxz->size_buf;
+      fxz->strm->next_out = fxz->buf_temp;
+      fxz->strm->avail_out = fxz->size_buf_temp;
       fxz->count_byte_write+=write_size;
       //printf("xz_write_end_file: write_size=%d\n",fxz->count_byte_write);
     }
 
     if ( ret != LZMA_OK ) {
-			if ( ret == LZMA_STREAM_END ) {
+      if ( ret == LZMA_STREAM_END ) {
         xz_init_stream(fxz);
-				return 0;
+        return 0;
       }
       fxz->ret=ret;
       return -1;
@@ -239,20 +254,20 @@ int xz_file_write_finish ( XZ_file_st * fxz )
     ret = lzma_code(fxz->strm, action);
 
     if ( fxz->strm->avail_out == 0 || ret == LZMA_STREAM_END ) {
-      write_size = fxz->size_buf - fxz->strm->avail_out;
+      write_size = fxz->size_buf_temp - fxz->strm->avail_out;
       if ( write_size )
-      if ( write(fxz->xz_file, fxz->buf, write_size )!= write_size )
+      if ( write(fxz->xz_file, fxz->buf_temp, write_size )!= write_size )
         return -1;
-			fxz->strm->next_out = fxz->buf;
-			fxz->strm->avail_out = fxz->size_buf;
+      fxz->strm->next_out = fxz->buf_temp;
+      fxz->strm->avail_out = fxz->size_buf_temp;
       fxz->count_byte_write+=write_size;
       //printf("xz_write_end_file: write_size=%d\n",fxz->count_byte_write);
     }
 
     if ( ret != LZMA_OK ) {
-			if ( ret == LZMA_STREAM_END ) {
+      if ( ret == LZMA_STREAM_END ) {
         xz_init_stream(fxz);
-				return 0;
+        return 0;
       }
       fxz->ret=ret;
       return -1;
@@ -276,53 +291,137 @@ int xz_file_read ( XZ_file_st * fxz, char * buf_read, int size_buf )
     return 0;
 
   if ( Lseek64(fxz->xz_file,0,SEEK_CUR)==0 ) {
-	  fxz->strm->next_in = NULL;
-	  fxz->strm->avail_in = 0;
+    fxz->strm->next_in = NULL;
+    fxz->strm->avail_in = 0;
   }
 
-	fxz->strm->next_out = buf_read;
-	fxz->strm->avail_out = size_buf;
+  fxz->strm->next_out = buf_read;
+  fxz->strm->avail_out = size_buf;
 
-	if ( fxz->len_file_read == Lseek64(fxz->xz_file,0,SEEK_CUR) )
-		action = LZMA_FINISH;
+  if ( fxz->len_file_read == Lseek64(fxz->xz_file,0,SEEK_CUR) )
+    action = LZMA_FINISH;
 
-	while (1) {
+  while (1) {
 
-		if ( fxz->strm->avail_in == 0 && fxz->len_file_read != Lseek64(fxz->xz_file,0,SEEK_CUR) ) {
+    if ( fxz->strm->avail_in == 0 && fxz->len_file_read != Lseek64(fxz->xz_file,0,SEEK_CUR) ) {
 
-      rc = read(fxz->xz_file, fxz->buf, fxz->size_buf);
-			fxz->strm->next_in = fxz->buf;
-			fxz->strm->avail_in = rc;
+      rc = read(fxz->xz_file, fxz->buf_temp, fxz->size_buf_temp);
+      fxz->strm->next_in = fxz->buf_temp;
+      fxz->strm->avail_in = rc;
 
-			if ( rc==-1 ) 
-				return -1;
+      if ( rc==-1 ) 
+        return -1;
       
       //printf("xz_file_read: count_byte_read=%d\n",fxz->count_byte_read);
 
       fxz->count_byte_read += fxz->strm->avail_in;
 
-			if ( fxz->len_file_read == Lseek64(fxz->xz_file,0,SEEK_CUR) )
-				action = LZMA_FINISH;
-		}
+      if ( fxz->len_file_read == Lseek64(fxz->xz_file,0,SEEK_CUR) )
+        action = LZMA_FINISH;
+    }
 
-		fxz->ret = ret = lzma_code(fxz->strm, action);
+    fxz->ret = ret = lzma_code(fxz->strm, action);
 
-		if ( fxz->strm->avail_out == 0 || ret == LZMA_STREAM_END ) {
+    if ( fxz->strm->avail_out == 0 || ret == LZMA_STREAM_END ) {
 
-			size_decompress = size_buf - fxz->strm->avail_out;
+      size_decompress = size_buf - fxz->strm->avail_out;
       fxz->count_byte_decompress += size_decompress;
       //printf("xz_file_read: count_byte_decompress=%d\n",size_decompress);
 
       return size_decompress;
-		}
+    }
 
-		if ( ret != LZMA_OK ) {
-			if ( ret == LZMA_STREAM_END )
-				return 0;
+    if ( ret != LZMA_OK ) {
+      if ( ret == LZMA_STREAM_END )
+        return 0;
       return -1;
     }
 
   } //  while (1)
+
+}
+
+// seek through reading (works in any direction)
+__int64 xz_file_seek ( XZ_file_st * fxz, __int64 offset, int origin )
+{
+  
+  if ( fxz==NULL || fxz->mode_open!=XZ_FILE_MODE_READ || fxz->xz_file==-1 )
+    return -1;
+
+  int rc, size_read;
+
+  if ( fxz->len_uncompress==0 ) {
+    rc=xz_file_get_uncompressed_len(fxz->name_file,&fxz->len_uncompress);
+    if ( rc==-1 || fxz->len_uncompress==0 )
+      return -1;
+  }
+  if ( fxz->buf_seek==0 ) {
+    fxz->buf_seek=malloc(fxz->size_buf_temp);
+    if ( fxz->buf_seek==0 )
+      return -1;
+  }
+
+  uint64_t new_offset, len_seek;
+
+  switch ( origin ) {
+  case SEEK_SET:
+    new_offset = offset;
+    break;
+  case SEEK_END:
+    new_offset = fxz->len_uncompress + offset;
+    break;
+  case SEEK_CUR:
+    new_offset = fxz->count_byte_decompress + offset;
+    break;
+  default:
+    return -1;
+  }
+
+   if ( new_offset>fxz->len_uncompress )
+     new_offset=fxz->len_uncompress;
+   if ( new_offset<0 )
+     new_offset=0;
+
+  if ( new_offset==fxz->count_byte_decompress )
+    return (__int64)fxz->count_byte_decompress;
+
+  if ( new_offset<fxz->count_byte_decompress ) {
+    if ( fxz->strm!=0 )
+      lzma_end(fxz->strm);
+    lzma_ret ret;
+    ret = lzma_stream_decoder(fxz->strm, UINT64_MAX, LZMA_CONCATENATED);
+    if (ret != LZMA_OK)
+      return -1;
+    xz_init_stream(fxz);
+    Lseek64(fxz->xz_file,0,SEEK_SET);
+    fxz->count_byte_read=0;
+    fxz->count_byte_decompress=0;
+    fxz->ret=LZMA_OK;
+    if ( new_offset==0 )
+      return 0;
+  }
+
+  len_seek = new_offset - fxz->count_byte_decompress;
+
+  while ( 1 ) {
+    if ( len_seek>fxz->size_buf_temp )
+      size_read = fxz->size_buf_temp;
+    else
+      size_read = (int)len_seek;
+    rc = xz_file_read(fxz,fxz->buf_seek,size_read);
+    if ( rc==-1 )
+      return -1;
+    if ( rc==0 ) {
+      if ( fxz->count_byte_decompress!=new_offset )
+        return -1;
+      return (__int64)fxz->count_byte_decompress;
+    }
+    if ( len_seek<rc )
+      return -1;
+    len_seek -= rc;
+    if ( len_seek==0 )
+      return (__int64)fxz->count_byte_decompress;
+  }
 
 }
 

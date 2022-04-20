@@ -40,6 +40,24 @@ void print_progress ( uint64_t offset, uint64_t file_len, char * str_end )
 
 #define SIZE_BUF 1024*1024
 
+void test_hst ( void )
+{
+  XZ_file_st * fxz;
+  int rc;
+  char buf[512];
+
+  for ( rc=0; rc<512; rc++ )
+    buf[rc]='0'+rc%10;
+
+  fxz=xz_file_create(SIZE_BUF);
+  rc=xz_file_open(fxz,"i:\\xz\\test.hst.xz",XZ_FILE_MODE_CREARE_WRITE,0);
+  rc=xz_file_write(fxz,buf,2);
+  rc=xz_file_write(fxz,buf+2,2);
+  rc=xz_file_write(fxz,buf+4,96);
+  xz_file_write_finish(fxz);
+  xz_file_close(fxz);
+}
+
 void main ( int argc, char *argv[] )
 {
   size_t len_read;
@@ -50,6 +68,9 @@ void main ( int argc, char *argv[] )
   int h_read, h_write;
   time_t t_start, t_last;
   char * buf_read, * buf_decompress;
+
+  //test_hst();
+  //return;
 
   if ( argc<2 ) {
     printf("Specify the file name to compress and (dir decompress)!\n");
@@ -122,7 +143,7 @@ void main ( int argc, char *argv[] )
   len_file_compress=Filelength(fxz->xz_file);
   xz_file_close(fxz);
   close(h_read);
-  printf("End compress: time=%d ratio=", time(0)-t_start);
+  printf("End compress: time=%d, sec, sec ratio=", time(0)-t_start);
   print_progress(len_file_compress,len_file_read,"\n");
 
   //M_Read:
@@ -166,7 +187,7 @@ void main ( int argc, char *argv[] )
   print_progress(Lseek64(h_write,0,SEEK_CUR),len_file_read,"\n");
   xz_file_close(fxz);
   close(h_write);
-  printf("End decompress: time=%d\n", time(0)-t_start);
+  printf("End decompress: time=%d, sec\n", time(0)-t_start);
 
   printf("count byte decompress=%I64d, len file read=%I64d - ",fxz->count_byte_decompress,len_file_read);
   if ( fxz->count_byte_decompress!=len_file_read ) {
@@ -175,8 +196,6 @@ void main ( int argc, char *argv[] )
   } else
     printf("OK.\n");
   
-  xz_file_delete(&fxz);
-
   //M_Test:
   printf("\nTest comparison file source %s and file decompress %s\n",argv[1],name_file_decompress);
   h_read=open(argv[1],O_RDONLY|O_BINARY,S_IREAD);
@@ -224,6 +243,95 @@ void main ( int argc, char *argv[] )
   close(h_read);
   close(h_write);
 
+
+  printf("\nTest seek file compress %s and file source %s\n",name_file_compress,argv[1]);
+
+  h_read=open(argv[1],O_RDONLY|O_BINARY,S_IREAD);
+  if ( h_read==-1 ) {
+    printf("Error - open file %s\n",argv[1]);
+    return;
+  }
+  len_file_read=Filelength(h_read);
+
+  rc=xz_file_open(fxz,name_file_compress,XZ_FILE_MODE_READ,0);
+  if ( rc==-1 ) {
+    printf("Error: ");
+    if ( fxz->ret==LZMA_OK )
+      printf("LZMA - %s\n",xz_file_str_error(fxz->ret));
+    else
+      printf("open file.");
+    return;
+  }
+
+  srand ( (int)time(NULL) );
+  t_last=t_start=time(0);
+  flag_cmp=0;
+
+  __int64 offset;
+  int origin;
+  __int64 rc_read, rc_xz;
+
+  printf("count tests - ");
+  for ( int i=0; i<100; i++ ) {
+
+    offset=rand();
+    origin=i%3;
+
+    if ( i==0 ) {
+      offset=len_file_read;
+      origin=SEEK_SET;
+    }
+    if ( i==1 ) {
+      offset=0;
+      origin=SEEK_SET;
+    }
+    rc_read=Lseek64(h_read,offset,origin);
+    if ( rc_read==-1 )
+      break;
+    rc_xz=xz_file_seek(fxz,offset,origin);
+    if ( rc_xz==-1 )
+      break;
+
+    len_read=read(h_read,buf_read,SIZE_BUF);
+    if ( len_read==-1 )
+      break;
+    len_decompress=xz_file_read(fxz,buf_decompress,SIZE_BUF);
+    if ( len_decompress==-1 )
+      break;
+    if ( len_read!=len_decompress )
+      break;
+    if ( len_read==0 )
+      continue;
+
+    if ( memcmp(buf_read,buf_decompress,len_read)!=0 ) {
+      flag_cmp=-1;
+      printf("Error - file comparison\n");
+      break;
+    }
+
+    if ( t_last!=time(0) ) {
+      t_last=time(0);
+      printf("%d, ",i);
+    }
+
+  }
+
+  if ( rc_xz==-1 || len_read==-1 || len_decompress==-1 || len_read!=len_decompress || flag_cmp==-1 ) {
+    if ( flag_cmp==-1 )
+      printf("Error - file comparison\n");
+    else
+      printf("Error - seek test\n");
+  } else {
+    printf("Test OK\n");
+  }
+
+  close(h_read);
+  xz_file_close(fxz);
+
+  xz_file_delete(&fxz);
+
   free(buf_read);
-  //_getch();
+  free(buf_decompress);
+
+  _getch();
 }

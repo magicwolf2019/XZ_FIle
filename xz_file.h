@@ -15,14 +15,17 @@ typedef struct {
   XZ_file_mode_open_en mode_open;
   lzma_stream * strm;
   int xz_file;
-  char * buf;
-  unsigned int size_buf;
+  char * buf_temp;
+  unsigned int size_buf_temp;
+  char * name_file;
+  char * buf_seek;
 
   lzma_ret ret;
   uint64_t count_byte_write;
   uint64_t len_file_read;
   uint64_t count_byte_read;
   uint64_t count_byte_decompress;
+  uint64_t len_uncompress;
 } XZ_file_st;
 
 #ifdef __cplusplus
@@ -44,6 +47,8 @@ int xz_file_write ( XZ_file_st * fxz, char * buf_write, int len_write );
 int xz_file_write_finish ( XZ_file_st * fxz );
 // Read buf from file
 int xz_file_read ( XZ_file_st * fxz, char * buf_read, int size_buf );
+// seek through reading (works in any direction)
+__int64 xz_file_seek ( XZ_file_st * fxz, __int64 offset, int origin );
 
 // Get length uncompressed data from xz file
 int xz_file_get_uncompressed_len ( char * name_file, uint64_t * len );
