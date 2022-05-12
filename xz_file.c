@@ -74,6 +74,7 @@ XZ_file_st * xz_file_create ( unsigned int size_buf )
   fxz->buf_temp=(char *)malloc(size_buf);
   if ( fxz->buf_temp==NULL )
     goto _M_Err;
+  fxz->size_buf_temp=size_buf;
   memset(fxz->buf_temp,0,fxz->size_buf_temp);
 
   fxz->strm=(lzma_stream*)malloc(sizeof(lzma_stream));
@@ -81,7 +82,6 @@ XZ_file_st * xz_file_create ( unsigned int size_buf )
     goto _M_Err;
   memset(fxz->strm,0,sizeof(lzma_stream));
 
-  fxz->size_buf_temp=size_buf;
   fxz->xz_file=-1;
 
   return fxz;
@@ -619,7 +619,7 @@ int xz_get_info_file ( char * name_file, xz_file_info * xfi )
         break;
 
       int j=0;
-      while ( 1 ) { // åñëè âñòðåòèëèñü îäíè íóëè â ôàéëå
+      while ( 1 ) { // Ã¥Ã±Ã«Ã¨ Ã¢Ã±Ã²Ã°Ã¥Ã²Ã¨Ã«Ã¨Ã±Ã¼ Ã®Ã¤Ã­Ã¨ Ã­Ã³Ã«Ã¨ Ã¢ Ã´Ã Ã©Ã«Ã¥
         if ( j>=LZMA_STREAM_HEADER_SIZE/4 )
           goto error;
         if ( buf.u32[j]!=0 )
