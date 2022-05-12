@@ -74,14 +74,14 @@ XZ_file_st * xz_file_create ( unsigned int size_buf )
   fxz->buf_temp=(char *)malloc(size_buf);
   if ( fxz->buf_temp==NULL )
     goto _M_Err;
-  fxz->size_buf_temp=size_buf;
-  memset(fxz->buf_temp,0,fxz->size_buf_temp);
+  memset(fxz->buf_temp,0,size_buf);
 
   fxz->strm=(lzma_stream*)malloc(sizeof(lzma_stream));
   if ( fxz->strm==NULL )
     goto _M_Err;
   memset(fxz->strm,0,sizeof(lzma_stream));
 
+  fxz->size_buf_temp=size_buf;
   fxz->xz_file=-1;
 
   return fxz;
